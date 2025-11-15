@@ -5,19 +5,18 @@
 #include <PumpMT.h>
 #include <SerialCommand.h>
 #include <ArduinoJson.h>
-#include "Pin.h"
+#include "Pin.h" // Pin.h에 정의된 #define 상수를 사용합니다.
 
-// ===== 하드웨어 객체 배열 =====
+// ===== 하드웨어 객체 배열 (크기 5: 4개 재료 + 1개 컵) =====
 ServoMT *servoMotors[5]; 
 FloatSW *floatSwitches[1]; 
-StockSensor *stockSensors[5];
+StockSensor *stockSensors[4];
 PumpMT *pumps[1]; 
 SerialCommand *serialCommand;
 
-// ===== 타이밍 변수 =====
-uint64_t lastSensorReadingTime = 0;
+// ===== 타이밍 및 통신 변수 (Pin.h의 #define을 사용하므로 const 선언 삭제) =====
 
-// ===== 명령 실행 상태 변수 =====
+uint64_t lastSensorReadingTime = 0;
 bool isCommandExecuting = false;
 uint64_t commandStartTime = 0;
 uint64_t commandDuration = 0;
@@ -35,7 +34,7 @@ void executeWaterCommand(const Command& command);
 void executeCoffeeCommand(const Command& command);
 void executeIcedTeaCommand(const Command& command);
 void executeGreenTeaCommand(const Command& command);
-void executeCupCommand(const Command& command); // 컵 디스펜서 함수 프로토타입 추가
+void executeCupCommand(const Command& command); 
 void startCommandExecution(CommandType commandType, float duration);
 
 /**
@@ -43,7 +42,7 @@ void startCommandExecution(CommandType commandType, float duration);
  */
 void setup() {
     // ===== 하드웨어 객체 생성 =====
-    // 서보 모터 및 재고 센서 확장 (설탕, 커피, 아이스티, 녹차)
+    // 서보 모터 및 재고 센서 (설탕, 커피, 아이스티, 녹차)
     servoMotors[0] = new ServoMT(PIN_SUGAR_SERVO, "SugarDispenser");
     stockSensors[0] = new StockSensor(PIN_SUGAR_LASER, PIN_SUGAR_SENSOR, "SugarStock");
     
@@ -60,19 +59,16 @@ void setup() {
     pumps[0] = new PumpMT(PIN_WATER_PUMP, "WaterPump");
     floatSwitches[0] = new FloatSW(PIN_WATER_FLOAT_SWITCH, "WaterFloatSwitch");
 
-    // 컵 디스펜서 서보 모터 추가
+    // ===== 컵 디스펜서 서보 모터 추가 =====
     servoMotors[4] = new ServoMT(PIN_CUP_SERVO, "CupDispenser");
     
-    // 시리얼 명령 핸들러
+    // 시리얼 명령 핸들러 (BAUD_RATE_SERIAL 상수는 Pin.h에서 가져옴)
     serialCommand = new SerialCommand(BAUD_RATE_SERIAL);
     
     // ===== 시리얼 통신 초기화 =====
     serialCommand->begin();
-
-    // ===== 서보 모터 초기화 대기 =====
     delay(1000);
 
-    // ===== 레이저 모듈 활성화 =====
     for (int i = 0; i < 4; i++) {
         stockSensors[i]->turnOnLaser();
     }
@@ -86,17 +82,15 @@ void setup() {
 void loop() {
     uint64_t currentTime = millis();
     
-    // ===== 센서 데이터 주기적 전송 =====
+    // ===== 센서 데이터 주기적 전송 (INTERVAL_SENSOR_READING 상수는 Pin.h에서 가져옴) =====
     if (currentTime - lastSensorReadingTime >= INTERVAL_SENSOR_READING) {
         lastSensorReadingTime = currentTime;
         sendSensorData();
     }
 
-    // ===== 명령 실행 상태 확인 =====
     if (isCommandExecuting) {
         checkCommandCompletion(currentTime);
     } else {
-        // ===== 새로운 명령 처리 =====
         processNewCommand();
     }
 }
@@ -105,19 +99,16 @@ void loop() {
  * @brief 센서 데이터 전송
  */
 void sendSensorData() {
-    // ArduinoJson 라이브러리 사용
-    StaticJsonDocument<256> doc; // JSON 문서 생성
+    StaticJsonDocument<256> doc; 
 
-    // 각 센서 상태를 JSON 문서에 추가
     doc["sugar"] = stockSensors[0]->getStockStateString();
     doc["coffee"] = stockSensors[1]->getStockStateString();
     doc["icetea"] = stockSensors[2]->getStockStateString();
     doc["greentea"] = stockSensors[3]->getStockStateString();
     doc["water"] = floatSwitches[0]->getStateString();
 
-    // JSON 객체를 시리얼로 전송
     serializeJson(doc, Serial);
-    Serial.println(); // 줄바꿈 추가
+    Serial.println(); 
 }
 
 /**
@@ -126,7 +117,6 @@ void sendSensorData() {
  */
 void checkCommandCompletion(uint64_t currentTime) {
     if (currentTime - commandStartTime >= commandDuration) {
-        // 명령 실행 완료 처리
         completeCommandExecution();
     }
 }
@@ -134,37 +124,40 @@ void checkCommandCompletion(uint64_t currentTime) {
 /**
  * @brief 명령 실행 완료 처리
  */
-
- 
 void completeCommandExecution() {
     switch (currentCommandType) {
         case COMMAND_SUGAR:
-            servoMotors[0]->setMinAngle(); // 서보 모터 닫기
+            // 닫힘 각도 30도 (파우더)
+            servoMotors[0]->setAngle(20); 
             serialCommand->printSuccess("Sugar dispensing completed");
             break;
             
         case COMMAND_WATER:
-            pumps[0]->turnOff(); // 펌프 정지
+            pumps[0]->turnOff(); 
             serialCommand->printSuccess("Water pumping completed");
             break;
             
         case COMMAND_COFFEE:
-            servoMotors[1]->setMinAngle();
+             // 닫힘 각도 30도 (파우더)
+            servoMotors[1]->setAngle(20); 
             serialCommand->printSuccess("Coffee dispensing completed");
             break;
             
         case COMMAND_ICEDTEA:
-            servoMotors[2]->setMinAngle();
+             // 닫힘 각도 30도 (파우더)
+            servoMotors[2]->setAngle(20); 
             serialCommand->printSuccess("IcedTea dispensing completed");
             break;
             
         case COMMAND_GREENTEA:
-            servoMotors[3]->setMinAngle();
+             // 닫힘 각도 30도 (파우더)
+            servoMotors[3]->setAngle(20); 
             serialCommand->printSuccess("GreenTea dispensing completed");
             break;
 
-        case COMMAND_CUP: // 컵 디스펜서 명령 완료 처리
-            servoMotors[4]->setMinAngle();
+        case COMMAND_CUP: 
+            // ===== 닫힘 각도 0도로 복귀 (컵) =====
+            servoMotors[4]->setAngle(0); 
             serialCommand->printSuccess("Cup dispensing completed");
             break;
             
@@ -172,7 +165,6 @@ void completeCommandExecution() {
             break;
     }
     
-    // 명령 실행 상태 초기화
     resetCommandState();
 }
 
@@ -226,8 +218,8 @@ void executeCommand(const Command& command) {
         case COMMAND_GREENTEA:
             executeGreenTeaCommand(command);
             break;
-
-        case COMMAND_CUP: // 컵 디스펜서 명령 실행
+            
+        case COMMAND_CUP:
             executeCupCommand(command);
             break;
             
@@ -251,7 +243,8 @@ void executeSugarCommand(const Command& command) {
     }
     serialCommand->printSuccess("Sugar command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_SUGAR, command.value);
-    servoMotors[0]->setMaxAngle();
+    // 열림 각도 0도 (파우더)
+    servoMotors[0]->setAngle(0);
 }
 
 /**
@@ -259,10 +252,13 @@ void executeSugarCommand(const Command& command) {
  * @param command 물 명령
  */
 void executeWaterCommand(const Command& command) {
-    if (floatSwitches[0]->isLiquidEmpty()) {
-        serialCommand->printError("Water tank is empty!");
-        return;
-    }
+    // --- [수정] 플로트 스위치 문제로 재고 확인 로직을 일시적으로 무시합니다. ---
+    // if (floatSwitches[0]->isLiquidEmpty()) { 
+    //     serialCommand->printError("Water tank is empty!");
+    //     return;
+    // }
+    // ---------------------------------------------------------------------
+
     serialCommand->printSuccess("Water command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_WATER, command.value);
     pumps[0]->turnOn();
@@ -279,7 +275,8 @@ void executeCoffeeCommand(const Command& command) {
     }
     serialCommand->printSuccess("Coffee command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_COFFEE, command.value);
-    servoMotors[1]->setMaxAngle();
+    // 열림 각도 0도 (파우더)
+    servoMotors[1]->setAngle(0); 
 }
 
 /**
@@ -293,7 +290,8 @@ void executeIcedTeaCommand(const Command& command) {
     }
     serialCommand->printSuccess("IcedTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_ICEDTEA, command.value);
-    servoMotors[2]->setMaxAngle();
+    // 열림 각도 0도 (파우더)
+    servoMotors[2]->setAngle(0);
 }
 
 /**
@@ -307,17 +305,20 @@ void executeGreenTeaCommand(const Command& command) {
     }
     serialCommand->printSuccess("GreenTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_GREENTEA, command.value);
-    servoMotors[3]->setMaxAngle();
+    // 열림 각도 0도 (파우더)
+    servoMotors[3]->setAngle(0);
 }
 
 /**
+
  * @brief 컵 디스펜서 명령 실행
  * @param command 컵 명령
  */
 void executeCupCommand(const Command& command) {
     serialCommand->printSuccess("Cup command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_CUP, command.value);
-    servoMotors[4]->setMaxAngle(); // 컵 디스펜서 서보 모터 작동
+    // ===== 열림 각도 150도로 설정 (컵) =====
+    servoMotors[4]->setAngle(180); 
 }
 
 /**
