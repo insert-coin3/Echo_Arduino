@@ -72,7 +72,15 @@ void setup() {
     for (int i = 0; i < 4; i++) {
         stockSensors[i]->turnOnLaser();
     }
+
+    // 파우더 디스펜서 (0~3번 인덱스): 닫힘 각도 20도
+    for (int i = 0; i < 4; i++) {
+        servoMotors[i]->setAngle(20); 
+    }
     
+    // 컵 디스펜서 (4번 인덱스): 닫힘 각도 0도
+    servoMotors[4]->setAngle(0);
+
     Serial.println("CafeFirmware initialized successfully");
 }
 
