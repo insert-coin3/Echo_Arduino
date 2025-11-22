@@ -5,16 +5,16 @@
 #include <PumpMT.h>
 #include <SerialCommand.h>
 #include <ArduinoJson.h>
-#include "Pin.h" // Pin.h에 정의된 #define 상수를 사용합니다.
+#include "Pin.h" 
 
-// ===== 하드웨어 객체 배열 (크기 5: 4개 재료 + 1개 컵) =====
+// ===== 하드웨어 객체 배열 (4개 재료 + 1개 컵) =====
 ServoMT *servoMotors[5]; 
 FloatSW *floatSwitches[1]; 
 StockSensor *stockSensors[4];
 PumpMT *pumps[1]; 
 SerialCommand *serialCommand;
 
-// ===== 타이밍 및 통신 변수 (Pin.h의 #define을 사용하므로 const 선언 삭제) =====
+// ===== 타이밍 및 통신 변수 =====
 
 uint64_t lastSensorReadingTime = 0;
 bool isCommandExecuting = false;
@@ -62,7 +62,7 @@ void setup() {
     // ===== 컵 디스펜서 서보 모터 추가 =====
     servoMotors[4] = new ServoMT(PIN_CUP_SERVO, "CupDispenser");
     
-    // 시리얼 명령 핸들러 (BAUD_RATE_SERIAL 상수는 Pin.h에서 가져옴)
+    // 시리얼 명령 핸들러 
     serialCommand = new SerialCommand(BAUD_RATE_SERIAL);
     
     // ===== 시리얼 통신 초기화 =====
@@ -90,7 +90,7 @@ void setup() {
 void loop() {
     uint64_t currentTime = millis();
     
-    // ===== 센서 데이터 주기적 전송 (INTERVAL_SENSOR_READING 상수는 Pin.h에서 가져옴) =====
+    // ===== 센서 데이터 주기적 전송 =====
     if (currentTime - lastSensorReadingTime >= INTERVAL_SENSOR_READING) {
         lastSensorReadingTime = currentTime;
         sendSensorData();
@@ -135,7 +135,7 @@ void checkCommandCompletion(uint64_t currentTime) {
 void completeCommandExecution() {
     switch (currentCommandType) {
         case COMMAND_SUGAR:
-            // 닫힘 각도 30도 (파우더)
+            // 닫힘 각도 20도 
             servoMotors[0]->setAngle(20); 
             serialCommand->printSuccess("Sugar dispensing completed");
             break;
@@ -146,25 +146,25 @@ void completeCommandExecution() {
             break;
             
         case COMMAND_COFFEE:
-             // 닫힘 각도 30도 (파우더)
+             // 닫힘 각도 20도 
             servoMotors[1]->setAngle(20); 
             serialCommand->printSuccess("Coffee dispensing completed");
             break;
             
         case COMMAND_ICEDTEA:
-             // 닫힘 각도 30도 (파우더)
+             // 닫힘 각도 20도 
             servoMotors[2]->setAngle(20); 
             serialCommand->printSuccess("IcedTea dispensing completed");
             break;
             
         case COMMAND_GREENTEA:
-             // 닫힘 각도 30도 (파우더)
+             // 닫힘 각도 20도 
             servoMotors[3]->setAngle(20); 
             serialCommand->printSuccess("GreenTea dispensing completed");
             break;
 
         case COMMAND_CUP: 
-            // ===== 닫힘 각도 0도로 복귀 (컵) =====
+            // ===== 닫힘 각도 0도로 복귀 =====
             servoMotors[4]->setAngle(0); 
             serialCommand->printSuccess("Cup dispensing completed");
             break;
@@ -251,7 +251,7 @@ void executeSugarCommand(const Command& command) {
     }
     serialCommand->printSuccess("Sugar command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_SUGAR, command.value);
-    // 열림 각도 0도 (파우더)
+    // 열림 각도 0도 
     servoMotors[0]->setAngle(0);
 }
 
@@ -260,7 +260,7 @@ void executeSugarCommand(const Command& command) {
  * @param command 물 명령
  */
 void executeWaterCommand(const Command& command) {
-    // --- [수정] 플로트 스위치 문제로 재고 확인 로직을 일시적으로 무시합니다. ---
+    // 플로트 스위치 사용 중단으로 재고 확인 로직을 무시 ---
     // if (floatSwitches[0]->isLiquidEmpty()) { 
     //     serialCommand->printError("Water tank is empty!");
     //     return;
@@ -283,7 +283,7 @@ void executeCoffeeCommand(const Command& command) {
     }
     serialCommand->printSuccess("Coffee command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_COFFEE, command.value);
-    // 열림 각도 0도 (파우더)
+    // 열림 각도 0도 
     servoMotors[1]->setAngle(0); 
 }
 
@@ -298,7 +298,7 @@ void executeIcedTeaCommand(const Command& command) {
     }
     serialCommand->printSuccess("IcedTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_ICEDTEA, command.value);
-    // 열림 각도 0도 (파우더)
+    // 열림 각도 0도 
     servoMotors[2]->setAngle(0);
 }
 
@@ -313,7 +313,7 @@ void executeGreenTeaCommand(const Command& command) {
     }
     serialCommand->printSuccess("GreenTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_GREENTEA, command.value);
-    // 열림 각도 0도 (파우더)
+    // 열림 각도 0도 
     servoMotors[3]->setAngle(0);
 }
 
