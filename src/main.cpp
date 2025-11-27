@@ -11,10 +11,10 @@
 ServoMT *servoMotors[5]; 
 FloatSW *floatSwitches[1]; 
 StockSensor *stockSensors[4];
-PumpMT *pumps[1]; 
+PumpMT *pumps[2]; // pumps[0]: 물 펌프, pumps[1]: DC 모터 릴레이
 SerialCommand *serialCommand;
 
-// ===== 타이밍 및 통신 변수 (Pin.h의 #define을 사용하므로 const 선언 삭제) =====
+// ===== 타이밍 및 통신 변수 =====
 
 uint64_t lastSensorReadingTime = 0;
 bool isCommandExecuting = false;
@@ -59,6 +59,9 @@ void setup() {
     pumps[0] = new PumpMT(PIN_WATER_PUMP, "WaterPump");
     floatSwitches[0] = new FloatSW(PIN_WATER_FLOAT_SWITCH, "WaterFloatSwitch");
 
+    // DC 모터(진동) 릴레이 제어 (pumps[1])
+    pumps[1] = new PumpMT(PIN_DC_MOTOR, "VibrationMotor");
+
     // ===== 컵 디스펜서 서보 모터 추가 =====
     servoMotors[4] = new ServoMT(PIN_CUP_SERVO, "CupDispenser");
     
@@ -74,18 +77,14 @@ void setup() {
     }
     
     // 서보 모터 초기 닫힘 각도 설정
-    // ----------------------------------------------------
-    // 설탕 (servoMotors[0]): 20도
-    servoMotors[0]->setAngle(20); 
-    // 커피 (servoMotors[1]): 30도
+    servoMotors[0]->setAngle(30); 
     servoMotors[1]->setAngle(30);
-    // 아이스티 (servoMotors[2]): 30도
     servoMotors[2]->setAngle(30);
-    // 녹차 (servoMotors[3]): 20도
     servoMotors[3]->setAngle(20);
-    // 컵 (servoMotors[4]): 0도 (컵 디스펜서는 기본 닫힘 각도가 0도로 가정)
     servoMotors[4]->setAngle(0);
-    // ----------------------------------------------------
+    
+    // DC 모터 릴레이 초기화: DC 모터는 꺼진 상태로 시작
+    pumps[1]->turnOff(); 
 
     Serial.println("CafeFirmware initialized successfully");
 }
@@ -138,10 +137,23 @@ void checkCommandCompletion(uint64_t currentTime) {
  * @brief 명령 실행 완료 처리
  */
 void completeCommandExecution() {
+    // 재료 분배 명령이 완료되면 DC 모터를 끕니다.
     switch (currentCommandType) {
         case COMMAND_SUGAR:
-            // 닫힘 각도 20도 (파우더)
-            servoMotors[0]->setAngle(20); 
+        case COMMAND_WATER:
+        case COMMAND_COFFEE:
+        case COMMAND_ICEDTEA:
+        case COMMAND_GREENTEA:
+            // 🚨 모든 재료 분배가 완료되면 DC 모터(진동) OFF
+            pumps[1]->turnOff(); 
+            break;
+        default:
+            break;
+    }
+
+    switch (currentCommandType) {
+        case COMMAND_SUGAR:
+            servoMotors[0]->setAngle(30); 
             serialCommand->printSuccess("Sugar dispensing completed");
             break;
             
@@ -151,25 +163,26 @@ void completeCommandExecution() {
             break;
             
         case COMMAND_COFFEE:
-             // 닫힘 각도 30도 (파우더)
             servoMotors[1]->setAngle(30); 
             serialCommand->printSuccess("Coffee dispensing completed");
             break;
             
         case COMMAND_ICEDTEA:
-             // 닫힘 각도 30도 (파우더)
             servoMotors[2]->setAngle(30); 
             serialCommand->printSuccess("IcedTea dispensing completed");
             break;
             
         case COMMAND_GREENTEA:
-             // 닫힘 각도 30도 (파우더)
             servoMotors[3]->setAngle(20); 
             serialCommand->printSuccess("GreenTea dispensing completed");
             break;
 
+        case COMMAND_DC_MOTOR: 
+            pumps[1]->turnOff(); 
+            serialCommand->printSuccess("DC Motor operation completed");
+            break;
+
         case COMMAND_CUP: 
-            // ===== 닫힘 각도 0도로 복귀 (컵) =====
             servoMotors[4]->setAngle(0); 
             serialCommand->printSuccess("Cup dispensing completed");
             break;
@@ -235,6 +248,11 @@ void executeCommand(const Command& command) {
         case COMMAND_CUP:
             executeCupCommand(command);
             break;
+
+        case COMMAND_DC_MOTOR: 
+            // DC 모터 명령은 재료 분배에 통합되었으므로 이 코드는 실행되지 않도록 합니다.
+            serialCommand->printError("DC Motor command is now integrated into ingredient dispensing.");
+            break;
             
         case COMMAND_UNKNOWN:
             serialCommand->printError("Unknown command: " + command.rawCommand);
@@ -245,18 +263,25 @@ void executeCommand(const Command& command) {
     }
 }
 
+// 🚨 재고 상태가 "LOW" 또는 "EMPTY"일 때 중단되는 로직 적용
+
 /**
  * @brief 설탕 분배 명령 실행
  * @param command 설탕 명령
  */
 void executeSugarCommand(const Command& command) {
-    if (stockSensors[0]->isStockEmpty()) {
-        serialCommand->printError("Sugar stock is empty!");
+    String stockState = stockSensors[0]->getStockStateString();
+
+    if (stockState == "LOW" || stockState == "EMPTY") {
+        serialCommand->printError("Sugar stock is too low to dispense!");
         return;
     }
+    
+    // DC 모터 ON
+    pumps[1]->turnOn(); 
+    
     serialCommand->printSuccess("Sugar command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_SUGAR, command.value);
-    // 열림 각도 0도 (파우더)
     servoMotors[0]->setAngle(0);
 }
 
@@ -265,12 +290,14 @@ void executeSugarCommand(const Command& command) {
  * @param command 물 명령
  */
 void executeWaterCommand(const Command& command) {
-    // --- [수정] 플로트 스위치 문제로 재고 확인 로직을 일시적으로 무시합니다. ---
+    // --- [참고] 물 재고 확인 로직은 임시 무시 상태 유지 ---
     // if (floatSwitches[0]->isLiquidEmpty()) { 
     //     serialCommand->printError("Water tank is empty!");
     //     return;
     // }
-    // ---------------------------------------------------------------------
+    
+    // DC 모터 ON
+    pumps[1]->turnOn();
 
     serialCommand->printSuccess("Water command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_WATER, command.value);
@@ -282,13 +309,18 @@ void executeWaterCommand(const Command& command) {
  * @param command 커피 명령
  */
 void executeCoffeeCommand(const Command& command) {
-    if (stockSensors[1]->isStockEmpty()) {
-        serialCommand->printError("Coffee stock is empty!");
+    String stockState = stockSensors[1]->getStockStateString();
+
+    if (stockState == "LOW" || stockState == "EMPTY") {
+        serialCommand->printError("Coffee stock is too low to dispense!");
         return;
     }
+    
+    // DC 모터 ON
+    pumps[1]->turnOn(); 
+
     serialCommand->printSuccess("Coffee command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_COFFEE, command.value);
-    // 열림 각도 0도 (파우더)
     servoMotors[1]->setAngle(0); 
 }
 
@@ -297,13 +329,18 @@ void executeCoffeeCommand(const Command& command) {
  * @param command 아이스티 명령
  */
 void executeIcedTeaCommand(const Command& command) {
-    if (stockSensors[2]->isStockEmpty()) {
-        serialCommand->printError("IcedTea stock is empty!");
+    String stockState = stockSensors[2]->getStockStateString();
+
+    if (stockState == "LOW" || stockState == "EMPTY") {
+        serialCommand->printError("IcedTea stock is too low to dispense!");
         return;
     }
+    
+    // DC 모터 ON
+    pumps[1]->turnOn(); 
+
     serialCommand->printSuccess("IcedTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_ICEDTEA, command.value);
-    // 열림 각도 0도 (파우더)
     servoMotors[2]->setAngle(0);
 }
 
@@ -312,25 +349,28 @@ void executeIcedTeaCommand(const Command& command) {
  * @param command 녹차 명령
  */
 void executeGreenTeaCommand(const Command& command) {
-    if (stockSensors[3]->isStockEmpty()) {
-        serialCommand->printError("GreenTea stock is empty!");
+    String stockState = stockSensors[3]->getStockStateString();
+
+    if (stockState == "LOW" || stockState == "EMPTY") {
+        serialCommand->printError("GreenTea stock is too low to dispense!");
         return;
     }
+    
+    // DC 모터 ON
+    pumps[1]->turnOn(); 
+
     serialCommand->printSuccess("GreenTea command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_GREENTEA, command.value);
-    // 열림 각도 0도 (파우더)
     servoMotors[3]->setAngle(0);
 }
 
 /**
-
  * @brief 컵 디스펜서 명령 실행
  * @param command 컵 명령
  */
 void executeCupCommand(const Command& command) {
     serialCommand->printSuccess("Cup command received: " + String(command.value) + "s");
     startCommandExecution(COMMAND_CUP, command.value);
-    // ===== 열림 각도 150도로 설정 (컵) =====
     servoMotors[4]->setAngle(180); 
 }
 
